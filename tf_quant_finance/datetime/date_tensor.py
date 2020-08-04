@@ -14,6 +14,7 @@
 # limitations under the License.
 """DateTensor definition."""
 import collections
+import datetime
 import numpy as np
 import tensorflow.compat.v2 as tf
 
@@ -242,7 +243,7 @@ class DateTensor(tensor_wrapper.TensorWrapper):
      #### Example
 
      ```python
-     dates = tff.datetime.dates_from_tuples([(2020, 1, 25), (2020, 3, 2)])
+    dates = tff.datetime.dates_from_tuples([(2020, 1, 25), (2020, 3, 2)])
     target = tff.datetime.dates_from_tuples([(2020, 3, 5)])
     dates.days_until(target) # [40, 3]
 
@@ -441,6 +442,9 @@ def convert_to_date_tensor(date_inputs):
   if isinstance(date_inputs, DateTensor):
     return date_inputs
 
+  if hasattr(date_inputs, "year"):  # Case 1.
+    return from_datetimes(date_inputs)
+
   if isinstance(date_inputs, np.ndarray):  # Case 2.
     date_inputs = date_inputs.astype("datetime64[D]")
     return from_np_datetimes(date_inputs)
@@ -487,6 +491,9 @@ def from_datetimes(datetimes):
   date_tensor = tff.datetime.dates_from_datetimes(dates)
   ```
   """
+  if isinstance(datetimes, (datetime.date, datetime.datetime)):
+    return from_year_month_day(datetimes.year, datetimes.month, datetimes.day,
+                               validate=False)
   years = tf.constant([dt.year for dt in datetimes], dtype=tf.int32)
   months = tf.constant([dt.month for dt in datetimes], dtype=tf.int32)
   days = tf.constant([dt.day for dt in datetimes], dtype=tf.int32)
@@ -586,17 +593,27 @@ def from_year_month_day(year, month, day, validate=True):
 
   control_deps = []
   if validate:
-    control_deps.append(tf.debugging.assert_positive(year))
     control_deps.append(
-        tf.debugging.assert_greater_equal(month, constants.Month.JANUARY.value))
+        tf.debugging.assert_positive(year, message="Year must be positive."))
     control_deps.append(
-        tf.debugging.assert_less_equal(month, constants.Month.DECEMBER.value))
-    control_deps.append(tf.debugging.assert_positive(day))
+        tf.debugging.assert_greater_equal(
+            month,
+            constants.Month.JANUARY.value,
+            message=f"Month must be >= {constants.Month.JANUARY.value}"))
+    control_deps.append(
+        tf.debugging.assert_less_equal(
+            month,
+            constants.Month.DECEMBER.value,
+            message="Month must be <= {constants.Month.JANUARY.value}"))
+    control_deps.append(
+        tf.debugging.assert_positive(day, message="Day must be positive."))
     is_leap = date_utils.is_leap_year(year)
     days_in_months = tf.constant(_DAYS_IN_MONTHS_COMBINED, tf.int32)
     max_days = tf.gather(days_in_months,
                          month + 12 * tf.dtypes.cast(is_leap, np.int32))
-    control_deps.append(tf.debugging.assert_less_equal(day, max_days))
+    control_deps.append(
+        tf.debugging.assert_less_equal(
+            day, max_days, message="Invalid day-month pairing."))
     with tf.compat.v1.control_dependencies(control_deps):
       # Ensure years, months, days themselves are under control_deps.
       year = tf.identity(year)
@@ -634,7 +651,9 @@ def from_ordinals(ordinals, validate=True):
 
   control_deps = []
   if validate:
-    control_deps.append(tf.debugging.assert_positive(ordinals))
+    control_deps.append(
+        tf.debugging.assert_positive(
+            ordinals, message="Ordinals must be positive."))
     with tf.compat.v1.control_dependencies(control_deps):
       ordinals = tf.identity(ordinals)
 

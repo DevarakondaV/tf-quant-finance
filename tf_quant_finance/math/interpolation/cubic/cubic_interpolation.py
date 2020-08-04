@@ -16,8 +16,8 @@
 
 
 import collections
-import numpy as np
 import tensorflow.compat.v2 as tf
+from tf_quant_finance.math.interpolation import utils
 
 SplineParameters = collections.namedtuple(
     "SplineParameters",
@@ -103,7 +103,7 @@ def build(x_data, y_data, validate_args=False, dtype=None, name=None):
       assert_sanity_check = [_validate_arguments(x_data)]
     else:
       assert_sanity_check = []
-
+    x_data, y_data = utils.broadcast_common_batch_shape(x_data, y_data)
     with tf.compat.v1.control_dependencies(assert_sanity_check):
       spline_coeffs = _calculate_spline_coeffs(x_data, y_data)
 
@@ -163,12 +163,11 @@ def interpolate(x_values,
     x_data = spline_data.x_data
     y_data = spline_data.y_data
     spline_coeffs = spline_data.spline_coeffs
-    # Check that all the x_values are within the boundaries
-    if x_values.shape.as_list()[:-1] != x_data.shape.as_list()[:-1]:
-      msg = ("The input tensor has a different number of rows than the "
-             "number of splines: {} != {}")
-      raise ValueError(msg.format(x_values.shape.as_list()[:-1],
-                                  x_data.shape.as_list()[:-1]))
+    # Try broadcast batch_shapes
+    x_values, x_data = utils.broadcast_common_batch_shape(x_values, x_data)
+    x_values, y_data = utils.broadcast_common_batch_shape(x_values, y_data)
+    x_values, spline_coeffs = utils.broadcast_common_batch_shape(x_values,
+                                                                 spline_coeffs)
     # Determine the splines to use.
     indices = tf.searchsorted(x_data, x_values, side="right") - 1
     # This selects all elements for the start of the spline interval.
@@ -187,7 +186,7 @@ def interpolate(x_values,
       upper_encoding = tf.one_hot(indices_upper, x_data_size,
                                   dtype=dtype)
     else:
-      index_matrix = _prepare_indices(indices)
+      index_matrix = utils.prepare_indices(indices)
       lower_encoding = tf.concat(
           [index_matrix, tf.expand_dims(indices_lower, -1)], -1)
       upper_encoding = tf.concat(
@@ -334,21 +333,3 @@ def _validate_arguments(x_data):
       diffs,
       tf.zeros_like(diffs),
       message="x_data is not sorted in non-decreasing order.")
-
-
-def _prepare_indices(indices):
-  """Prepares `tf.searchsorted` output for index argument of `tf.gather_nd`."""
-  batch_shape = indices.shape.as_list()[:-1]
-  num_points = indices.shape.as_list()[-1]
-  batch_shape_reverse = indices.shape.as_list()[:-1]
-  batch_shape_reverse.reverse()
-  index_matrix = tf.constant(
-      np.flip(np.transpose(np.indices(batch_shape_reverse)), -1),
-      dtype=indices.dtype)
-  batch_rank = len(batch_shape)
-  # Broadcast index matrix to the shape of
-  # `batch_shape + [num_points] + [batch_rank]`
-  broadcasted_shape = batch_shape + [num_points] + [batch_rank]
-  index_matrix = tf.expand_dims(index_matrix, -2) + tf.zeros(
-      broadcasted_shape, dtype=indices.dtype)
-  return index_matrix

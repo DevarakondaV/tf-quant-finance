@@ -175,6 +175,7 @@ py_test(
     timeout = "moderate",
     srcs = ["holiday_calendar_test.py"],
     python_version = "PY3",
+    shard_count = 3,
     deps = [
         ":bounded_holiday_calendar",
         ":test_data",
@@ -230,6 +231,7 @@ py_test(
     size = "small",
     srcs = ["daycounts_test.py"],
     python_version = "PY3",
+    shard_count = 4,
     deps = [
         "//tf_quant_finance",
         # test util,

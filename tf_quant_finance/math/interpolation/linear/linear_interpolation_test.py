@@ -263,6 +263,50 @@ class LinearInterpolation(tf.test.TestCase, parameterized.TestCase):
 
     self.assertFalse(self.evaluate(tf.reduce_any(tf.math.is_nan(gradients))))
 
+  @parameterized.named_parameters(
+      ('default_interpolation', False),
+      ('one_hot_interpolation', True),
+  )
+  def test_spline_broadcast_batch(self, optimize_for_tpu):
+    """Tests batch shape of spline and interpolation are broadcasted."""
+    x = np.array([1.0, 1.5, 3.0])
+    x_data = np.array([1.1, 2.2, 3.0, 4.0])
+    y_data = x_data**2
+
+    x_1 = tf.expand_dims(x, axis=0)
+    x_data_2 = tf.expand_dims(x_data, axis=0)
+    y_data_3 = tf.expand_dims(y_data, axis=0)
+
+    result_1 = tff.math.interpolation.linear.interpolate(
+        x_1, x_data, y_data, optimize_for_tpu=optimize_for_tpu)
+    result_2 = tff.math.interpolation.linear.interpolate(
+        x, x_data_2, y_data, optimize_for_tpu=optimize_for_tpu)
+    result_3 = tff.math.interpolation.linear.interpolate(
+        x, x_data, y_data_3, optimize_for_tpu=optimize_for_tpu)
+    expected = np.array([[1.21, 2.53, 9.0]])
+    with self.subTest('BroadcastData'):
+      self.assertAllClose(result_1, expected)
+    with self.subTest('BroadcastXData'):
+      self.assertAllClose(result_2, expected)
+    with self.subTest('BroadcastYData'):
+      self.assertAllClose(result_3, expected)
+
+  def test_linear_interpolation_dynamic_number_points(self):
+    """Tests linear interpolation with multiple batching dimensions."""
+    if tf.executing_eagerly():
+      # No dynamic shapes in eager mode
+      return
+    dtype = np.float64
+    x = tf.compat.v1.placeholder(dtype, [1, 2, None])
+    x_data = np.array([[[1, 2], [3, 4]]])
+    y_data = np.array([[[0, 1], [2, 3]]])
+    op = tff.math.interpolation.linear.interpolate(x, x_data, y_data,
+                                                   dtype=dtype)
+    with self.cached_session() as session:
+      results = session.run(
+          op, feed_dict={x: [[[1.5, 2.0, 3.0], [3.5, 4.0, 2.0]]]})
+    self.assertAllClose(
+        results, np.array([[[0.5, 1.0, 1.0], [2.5, 3.0, 2.0]]]), 1e-8)
 
 if __name__ == '__main__':
   tf.test.main()
